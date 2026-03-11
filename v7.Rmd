@@ -1,0 +1,400 @@
+---
+title: "Untitled"
+author: "miryala vaishnavi"
+date: "2026-03-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+base <- getwd()
+path <- file.path(base, "data_brsm", "single", "lab")
+files <- sort(list.files(path = path,
+                         pattern = "\\.csv$",
+                         full.names = TRUE))
+
+single_lab_rt <- c()
+single_lab_acc <- c()
+single_lab_fr <- c()
+single_levelwise_rt <- NULL
+
+for (file in files) {
+  
+  df <- read.csv(file)
+  entries <- df$mouse.clicked_name
+  entries <- entries[!is.na(entries)]
+  
+  all_clicks <- c()
+  for (entry in entries) {
+    
+    clean <- gsub("\\[|\\]|'", "", entry)
+    clicks <- strsplit(clean, ",")[[1]]
+    clicks <- trimws(clicks)
+    
+    all_clicks <- c(all_clicks, clicks)
+  }
+  
+  total_clicks <- length(all_clicks)
+  hits <- sum(all_clicks == "target")
+  false_clicks <- total_clicks - hits
+  
+  accuracy <- hits / total_clicks
+  false_alarm_rate <- false_clicks / total_clicks
+  
+  single_lab_acc <- c(single_lab_acc, accuracy)
+  single_lab_fr  <- c(single_lab_fr, false_alarm_rate)
+  response_times <- df$mouse.time
+  response_times <- response_times[!is.na(response_times)]
+  response_times <- gsub("\\[|\\]", "", response_times)
+  response_times <- as.numeric(response_times)
+
+  single_levelwise_rt <- rbind(single_levelwise_rt, response_times)
+  single_lab_rt <- c(single_lab_rt,
+                          mean(response_times, na.rm = TRUE))
+}
+
+print(mean(single_lab_rt))
+
+path1 <- file.path(getwd(), "data_brsm", "multiple", "lab")
+
+files <- sort(list.files(path = path1,
+                         pattern = "\\.csv$",
+                         full.names = TRUE))
+
+multi_lab_rt <- c()
+multi_lab_acc <- c()
+multi_levelwise_rt <- NULL
+
+for (file in files) {
+  
+  df <- read.csv(file, stringsAsFactors = FALSE)
+  
+  # ----- RT calculation -----
+  
+  all_values <- c()
+  entries <- df$mouse.time
+  entries <- entries[!is.na(entries)]
+  for (entry in entries) {
+    
+    split_lists <- strsplit(gsub("\\]\\[", "]|||[", entry), "\\|\\|\\|")[[1]]
+    
+    for (lst in split_lists) {
+      
+      clean <- gsub("\\[|\\]", "", lst)
+      
+      if (nchar(clean) > 0) {
+        parsed <- as.numeric(strsplit(clean, ",")[[1]])
+        
+        if (length(parsed) > 0) {
+          s <- tail(parsed, 1)
+          all_values <- c(all_values, s / length(parsed))
+        }
+      }
+    }
+  }
+  multi_levelwise_rt <- rbind(multi_levelwise_rt, all_values)
+  multi_lab_rt <- c(multi_lab_rt, mean(all_values))
+  
+  
+  # ----- Accuracy calculation -----
+  
+  entries1 <- df$mouse.clicked_name
+  entries1 <- entries1[!is.na(entries1)]
+  
+  round_acc <- c()
+  
+  for (entry in entries1) {
+    
+    clean <- gsub("\\[|\\]|'", "", entry)
+    clicks <- strsplit(clean, ",")[[1]]
+    clicks <- trimws(clicks)
+    
+    unique_targets <- length(unique(clicks))
+    
+    acc <- unique_targets / 5
+    
+    round_acc <- c(round_acc, acc)
+  }
+  
+  multi_lab_acc <- c(multi_lab_acc, mean(round_acc))
+}
+
+hist(single_lab_rt,
+     main = "Single Lab - Mean RT",
+     probability = TRUE,
+     ylim = c(0, 3),
+     xlab = "Mean Reaction Time",
+     col = "lightblue",
+     border = "black")
+lines(density(single_lab_rt),
+      col = "blue",
+      lwd = 2)
+
+hist(multi_lab_rt,
+     main = "Multiple Lab - Mean RT",
+     ylim = c(0, 3),
+     probability = TRUE,
+     xlab = "Mean Reaction Time",
+     col = "lightgreen",
+     border = "black")
+lines(density(multi_lab_rt),
+      col = "darkgreen",
+      lwd = 2)
+
+boxplot(single_lab_rt, multi_lab_rt,
+        names = c("Single Target", "Multi Target"),
+        main = "Lab Reaction Time Comparison",
+        ylab = "Mean Reaction Time",
+        col = c("lightblue", "lightgreen"),
+        border = "black")
+
+print(sd(single_lab_rt))
+print(sd(multi_lab_rt))
+print(mean(multi_lab_acc))
+print(sd(multi_lab_acc))
+single_levelwise_rt <- colMeans(single_levelwise_rt, na.rm = TRUE)
+print(single_levelwise_rt, na.rm = TRUE)
+print(multi_levelwise_rt)
+
+
+
+
+
+
+
+library(dplyr)
+library(ggplot2)
+
+multi_lab_inter <- lab_trials %>%
+  filter(Condition == "Multiple",
+         !is.na(InterTarget_ms),
+         InterTarget_ms > 0) %>%
+  group_by(Level) %>%
+  summarise(
+    Mean_Inter = mean(InterTarget_ms, na.rm = TRUE),
+    SD_Inter   = sd(InterTarget_ms,   na.rm = TRUE),
+    n_trials   = n(),
+    .groups = "drop"
+  )
+
+multi_lab_inter   # this is the table you report
+
+y_rng  <- range(multi_lab_inter$Mean_Inter, na.rm = TRUE)
+y_pad  <- 0.1 * diff(y_rng)
+y_lims <- y_rng + c(-y_pad, y_pad)
+x_max  <- max(multi_lab_inter$Level)
+
+ggplot(multi_lab_inter, aes(x = Level, y = Mean_Inter)) +
+  geom_line(color = "darkorange") +
+  geom_point(size = 3) +
+  scale_x_continuous(breaks = 1:x_max,
+                     limits = c(0.5, x_max + 0.5)) +
+  scale_y_continuous(limits = y_lims,
+                     expand = expansion(mult = c(0, 0))) +
+  labs(
+    title = "Average Inter-Target Time Across Levels (Multiple - Lab)",
+    x = "Level / Trial",
+    y = "Average Inter-Target Time (ms)"
+  ) +
+  theme_minimal()
+
+
+
+
+
+
+library(dplyr)
+
+# Game (phone)
+fa_game_summary <- phone_trials %>%
+  group_by(Condition) %>%
+  summarise(
+    mean_FA = mean(FalseAlarms, na.rm = TRUE),
+    sd_FA   = sd(FalseAlarms,   na.rm = TRUE),
+    n       = n(),
+    .groups = "drop"
+  )
+
+fa_game_summary
+
+# Lab
+fa_lab_summary <- lab_trials %>%
+  group_by(Condition) %>%
+  summarise(
+    mean_FA = mean(FalseAlarms, na.rm = TRUE),
+    sd_FA   = sd(FalseAlarms,   na.rm = TRUE),
+    n       = n(),
+    .groups = "drop"
+  )
+
+fa_lab_summary
+
+# Optional: nice tables in the report
+knitr::kable(fa_game_summary, caption = "False Alarms – Game")
+knitr::kable(fa_lab_summary,  caption = "False Alarms – Lab")
+
+
+
+
+
+
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Participant-level mean RT in each modality
+subj_phone_rt <- phone_trials %>%
+  group_by(Participant, Condition) %>%
+  summarise(Game_RT = mean(RT_ms, na.rm = TRUE), .groups = "drop")
+
+subj_lab_rt <- lab_trials %>%
+  group_by(Participant, Condition) %>%
+  summarise(Lab_RT = mean(RT_ms, na.rm = TRUE), .groups = "drop")
+
+subj_rt <- inner_join(subj_phone_rt, subj_lab_rt,
+                      by = c("Participant", "Condition"))
+
+# ----- Single Target -----
+single_long <- subj_rt %>%
+  filter(Condition == "Single") %>%
+  pivot_longer(cols = c(Game_RT, Lab_RT),
+               names_to = "Modality",
+               values_to = "RT_ms") %>%
+  mutate(Modality = ifelse(Modality == "Game_RT", "Game", "Lab"))
+
+# line plot
+ggplot(single_long,
+       aes(x = Modality, y = RT_ms, group = Participant, color = Participant)) +
+  geom_line(alpha = 0.5) +
+  geom_point(size = 2) +
+  labs(
+    title = "Reaction Time Comparison (Single Target: Game vs Lab)",
+    x = "Modality",
+    y = "Mean RT per Participant (ms)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# boxplot
+ggplot(single_long,
+       aes(x = Modality, y = RT_ms, fill = Modality)) +
+  geom_boxplot() +
+  labs(
+    title = "Reaction Time Comparison (Single Target: Game vs Lab)",
+    x = "Modality",
+    y = "Mean RT per Participant (ms)"
+  ) +
+  theme_minimal()
+
+# ----- Multiple Target -----
+multiple_long <- subj_rt %>%
+  filter(Condition == "Multiple") %>%
+  pivot_longer(cols = c(Game_RT, Lab_RT),
+               names_to = "Modality",
+               values_to = "RT_ms") %>%
+  mutate(Modality = ifelse(Modality == "Game_RT", "Game", "Lab"))
+
+ggplot(multiple_long,
+       aes(x = Modality, y = RT_ms, group = Participant, color = Participant)) +
+  geom_line(alpha = 0.5) +
+  geom_point(size = 2) +
+  labs(
+    title = "Reaction Time Comparison (Multiple Target: Game vs Lab)",
+    x = "Modality",
+    y = "Mean RT per Participant (ms)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+ggplot(multiple_long,
+       aes(x = Modality, y = RT_ms, fill = Modality)) +
+  geom_boxplot() +
+  labs(
+    title = "Reaction Time Comparison (Multiple Target: Game vs Lab)",
+    x = "Modality",
+    y = "Mean RT per Participant (ms)"
+  ) +
+  theme_minimal()
+
+
+
+
+
+
+
+
+library(dplyr)
+library(ggplot2)
+
+# subj_rt is already created in the previous chunk
+
+# ----- Single -----
+single_corr <- subj_rt %>% filter(Condition == "Single")
+
+ggplot(single_corr, aes(x = Lab_RT, y = Game_RT)) +
+  geom_point(color = "steelblue") +
+  geom_smooth(method = "lm", se = FALSE, color = "darkred") +
+  labs(
+    title = "Game RT vs Lab RT (Single Target)",
+    x = "Lab Mean RT (ms)",
+    y = "Game Mean RT (ms)"
+  ) +
+  theme_minimal()
+
+cat("Single – Pearson r:",
+    cor(single_corr$Lab_RT, single_corr$Game_RT,
+        use = "complete.obs", method = "pearson"),
+    "\n")
+
+cat("Single – Spearman rho:",
+    cor(single_corr$Lab_RT, single_corr$Game_RT,
+        use = "complete.obs", method = "spearman"),
+    "\n")
+
+# ----- Multiple -----
+multiple_corr <- subj_rt %>% filter(Condition == "Multiple")
+
+ggplot(multiple_corr, aes(x = Lab_RT, y = Game_RT)) +
+  geom_point(color = "darkgreen") +
+  geom_smooth(method = "lm", se = FALSE, color = "darkred") +
+  labs(
+    title = "Game RT vs Lab RT (Multiple Targets)",
+    x = "Lab Mean RT (ms)",
+    y = "Game Mean RT (ms)"
+  ) +
+  theme_minimal()
+
+cat("Multiple – Pearson r:",
+    cor(multiple_corr$Lab_RT, multiple_corr$Game_RT,
+        use = "complete.obs", method = "pearson"),
+    "\n")
+
+cat("Multiple – Spearman rho:",
+    cor(multiple_corr$Lab_RT, multiple_corr$Game_RT,
+        use = "complete.obs", method = "spearman"),
+    "\n")
+
+
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
