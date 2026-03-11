@@ -1,0 +1,923 @@
+---
+title: "Project"
+author: "Harshika"
+date: "2026-03-04"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(purrr)
+
+base <- getwd()
+print(base)
+path <- file.path(base, "data_brsm", "single", "phone")
+
+files <- sort(list.files(path = path,
+                         pattern = "\\.csv$",
+                         full.names = TRUE))
+
+# print(files)
+
+
+path1 <- file.path(getwd(), "data_brsm", "multiple", "phone")
+
+multiple_files <- sort(list.files(path = path1,
+                         pattern = "\\.csv$",
+                         full.names = TRUE))
+
+# print(multiple_files)
+
+single_phone <- map_df(files, function(f) {
+  read.csv(f, stringsAsFactors = FALSE)
+}, .id = "Player")
+
+single_phone <- single_phone %>%
+  select(Player, PlayerID, Timestamp, GameMode, Level, FinalScore,
+         Completed, SuccessRate... , HitRate..., FalseAlarms,
+         InitialResponseTime.ms., AvgInterTargetTime.ms., HitPositions.x.y.)
+
+# str(single_phone)
+length(unique(single_phone$Player))
+table(single_phone$GameMode)
+table(single_phone$Player)
+colnames(single_phone[7])
+names(single_phone) <- make.names(names(single_phone))
+names(single_phone)
+ # print(single_phone)
+library(dplyr)
+
+table(single_phone$GameMode)
+
+names(single_phone) <- make.names(names(single_phone))
+#names(single_phone)
+
+single_phone$SuccessRate... <- as.numeric(single_phone$SuccessRate...)
+single_phone$HitRate... <- as.numeric(single_phone$HitRate...)
+
+
+single_participant_stats <- single_phone %>%
+  filter(Completed == "true", InitialResponseTime.ms. > 0) %>%
+  group_by(Player) %>%
+  summarise(
+    Mean_RT = mean(InitialResponseTime.ms., na.rm = TRUE),
+    Mean_SuccessRate = mean(SuccessRate..., na.rm = TRUE),
+    Mean_HitRate = mean(HitRate..., na.rm = TRUE),
+    Mean_FalseAlarms = mean(FalseAlarms, na.rm = TRUE)
+  )
+
+print(single_participant_stats$Mean_RT)
+
+single_stats <- data.frame(
+  Mean_RT = mean(single_participant_stats$Mean_RT),
+  SD_RT = sd(single_participant_stats$Mean_RT),
+
+  Mean_SuccessRate = mean(single_participant_stats$Mean_SuccessRate),
+  SD_SuccessRate = sd(single_participant_stats$Mean_SuccessRate),
+
+  Mean_HitRate = mean(single_participant_stats$Mean_HitRate),
+  SD_HitRate = sd(single_participant_stats$Mean_HitRate),
+
+  Mean_FalseAlarms = mean(single_participant_stats$Mean_FalseAlarms),
+  SD_FalseAlarms = sd(single_participant_stats$Mean_FalseAlarms)
+)
+
+print(single_stats)
+
+
+single_level_stats <- single_phone %>%
+  filter(Completed == "true", InitialResponseTime.ms. > 0) %>%
+  group_by(Player, Level) %>%
+  summarise(
+    RT = mean(InitialResponseTime.ms., na.rm = TRUE),
+    SuccessRate = mean(SuccessRate..., na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  group_by(Level) %>%
+  summarise(
+    Mean_RT = mean(RT),
+    SD_RT = sd(RT),
+    Mean_SuccessRate = mean(SuccessRate)
+  )
+
+table(single_phone$HitRate...)
+
+
+rt_level_stats <- single_phone %>%
+  filter(Completed == "true") %>%
+  group_by(Player, Level) %>%
+  summarise(
+    RT = mean(InitialResponseTime.ms., na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  group_by(Level) %>%
+  summarise(
+    Mean_RT = mean(RT)
+  )
+
+print(rt_level_stats)
+
+
+```
+
+
+```{r}
+library(ggplot2)
+my_theme <- theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    axis.line = element_line(color = "black")
+  )
+
+ggplot(
+  single_phone %>% filter(Completed == "true", InitialResponseTime.ms. > 0),
+  aes(x = InitialResponseTime.ms.)
+) +
+  geom_histogram(binwidth = 500, fill = "steelblue", color = "black") +
+  labs(
+    title = "Reaction Time Distribution (Single Target - Phone)",
+    x = "Reaction Time (ms)",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  my_theme
+
+
+ggplot(
+  single_phone %>% filter(Completed == "true", InitialResponseTime.ms. > 0),
+  aes(x = factor(Level), y = InitialResponseTime.ms.)
+) +
+  geom_boxplot(fill = "steelblue") +
+  labs(
+    title = "Reaction Time Across Levels (Single Target - Phone)",
+    x = "Level",
+    y = "Reaction Time (ms)"
+  ) +
+  theme_minimal() +
+  my_theme
+
+ggplot(single_level_stats, aes(x = factor(Level), y = Mean_SuccessRate)) +
+  geom_bar(stat = "identity", fill = "darkgreen") +
+  labs(
+    title = "Average Success Rate by Level (Single Target - Phone)",
+    x = "Level",
+    y = "Success Rate (%)"
+  ) +
+  ylim(0,100) +
+  theme_minimal() +
+  my_theme
+
+ggplot(single_level_stats, aes(x = Level, y = Mean_SuccessRate)) +
+  geom_line(color = "darkgreen", size = 1) +
+  geom_point(size = 3) +
+  labs(
+    title = "Success Rate Trend Across Levels (Single Target - Phone)",
+    x = "Level",
+    y = "Success Rate (%)"
+  ) +
+  ylim(90,100) +
+  theme_minimal() +
+  my_theme
+
+ggplot(single_phone, aes(x = FalseAlarms)) +
+  geom_histogram(binwidth = 1, fill = "orange", color = "black") +
+  labs(
+    title = "Distribution of False Alarms (Single Target - Phone)",
+    x = "Number of False Alarms",
+    y = "Frequency"
+  ) +
+  theme_minimal() + 
+  my_theme
+
+ggplot(rt_level_stats, aes(x = Level, y = Mean_RT)) +
+  geom_line(color = "red") +
+  geom_point(size = 2) +
+  labs(
+    title = "Average Reaction Time Trend Across Levels(Single Game)",
+    x = "Level",
+    y = "Mean Reaction Time (ms)"
+  ) +
+  theme_minimal() +
+  my_theme
+
+accuracy_overall <- single_phone %>%
+  summarise(
+    Total_Attempts = n(),
+    Successful_Trials = sum(Completed == "true", na.rm = TRUE),
+    Accuracy = Successful_Trials / Total_Attempts
+  )
+
+print(accuracy_overall)
+
+
+
+accuracy_by_level <- single_phone %>%
+  filter(!is.na(Level)) %>%
+  group_by(Level) %>%
+  summarise(
+    Total_Attempts = n(),
+    Successful_Trials = sum(Completed == "true", na.rm = TRUE),
+    Accuracy = Successful_Trials / Total_Attempts
+  )
+
+print(accuracy_by_level)
+
+ggplot(accuracy_by_level, aes(x = Level, y = Accuracy)) +
+  geom_line(color = "darkgreen", linewidth = 1) +
+  geom_point(size = 3) +
+  ylim(0,1) +
+  labs(
+    title = "Accuracy by Level (Single Target - Phone)",
+    x = "Level",
+    y = "Accuracy"
+  ) +
+  theme_minimal() +
+  my_theme
+
+accuracy_by_level$Accuracy <- accuracy_by_level$Accuracy * 100
+
+```
+```{r}
+# Read multiple phone data
+multiple_phone <- map_df(multiple_files, function(f) {
+  read.csv(f)
+})
+
+str(multiple_phone)
+# Clean column names
+names(multiple_phone) <- make.names(names(multiple_phone))
+
+# Convert columns to numeric
+multiple_phone$SuccessRate... <- as.numeric(multiple_phone$SuccessRate...)
+multiple_phone$HitRate... <- as.numeric(multiple_phone$HitRate...)
+
+# -------------------------------
+# Reaction Time stats (completed trials only)
+# -------------------------------
+
+multi_participant_stats <- multiple_phone %>%
+  filter(Completed == "true", InitialResponseTime.ms. > 0, Level %in% 1:10) %>%
+  group_by(PlayerID) %>%
+  summarise(
+    Mean_RT = mean(InitialResponseTime.ms., na.rm = TRUE),
+    Mean_InterTarget = mean(AvgInterTargetTime.ms., na.rm = TRUE)
+  )
+
+multi_rt_stats <- multiple_phone %>%
+  filter(Completed == "true", InitialResponseTime.ms. > 0 , Level %in% 1:10) %>%
+  summarise(
+    Mean_RT = mean(InitialResponseTime.ms., na.rm = TRUE),
+    SD_RT = sd(InitialResponseTime.ms., na.rm = TRUE),
+
+    Mean_Avg_RT = mean(AvgInterTargetTime.ms., na.rm = TRUE),
+    SD_Avg_RT = sd(AvgInterTargetTime.ms., na.rm = TRUE)
+  )
+
+print(multi_rt_stats)
+
+# -------------------------------
+# Accuracy stats (all trials)
+# -------------------------------
+
+multi_accuracy_stats <- multiple_phone %>%
+  filter(Level %in% 1:10) %>%
+  summarise(
+    Mean_SuccessRate = mean(SuccessRate..., na.rm = TRUE),
+    SD_SuccessRate = sd(SuccessRate..., na.rm = TRUE),
+
+    Mean_HitRate = mean(HitRate..., na.rm = TRUE),
+    SD_HitRate = sd(HitRate..., na.rm = TRUE),
+
+    Mean_FalseAlarms = mean(FalseAlarms, na.rm = TRUE),
+    SD_FalseAlarms = sd(FalseAlarms, na.rm = TRUE)
+  )
+
+print(multi_accuracy_stats)
+
+# -------------------------------
+# Level-wise RT analysis
+# -------------------------------
+
+multi_level_stats <- multiple_phone %>%
+  filter(Completed == "true" , Level %in% 1:10) %>%
+  group_by(Level) %>%
+  summarise(
+    Mean_RT = mean(InitialResponseTime.ms., na.rm = TRUE),
+    Mean_Avg_RT = mean(AvgInterTargetTime.ms., na.rm = TRUE),
+    Mean_SuccessRate = mean(SuccessRate..., na.rm = TRUE)
+  )
+
+print(multi_level_stats)
+
+avg_inter_target <- multiple_phone %>%
+  filter(Completed == "true", AvgInterTargetTime.ms. > 0) %>%
+  summarise(
+    Mean_AvgInterTarget = mean(AvgInterTargetTime.ms., na.rm = TRUE),
+    SD_AvgInterTarget = sd(AvgInterTargetTime.ms., na.rm = TRUE)
+  )
+
+print(avg_inter_target)
+```
+```{r}
+
+my_theme <- theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    axis.line = element_line(color = "black")
+  )
+
+ggplot(
+  multiple_phone %>% filter(Completed == "true", InitialResponseTime.ms. > 0, Level %in% 1:10),
+  aes(x = InitialResponseTime.ms.)
+) +
+  geom_histogram(binwidth = 500, fill = "steelblue", color = "black") +
+  labs(
+    title = "Reaction Time Distribution (Multiple Targets - Phone)",
+    x = "Reaction Time (ms)",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  my_theme
+
+ggplot(
+  multiple_phone %>% filter(Completed == "true", InitialResponseTime.ms. > 0, Level %in% 1:10),
+  aes(x = factor(Level), y = InitialResponseTime.ms.)
+) +
+  geom_boxplot(fill = "steelblue") +
+  labs(
+    title = "Reaction Time Across Levels (Multiple Targets - Phone)",
+    x = "Level",
+    y = "Reaction Time (ms)"
+  ) +
+  theme_minimal() + 
+  my_theme
+
+ggplot(multi_level_stats, aes(x = factor(Level), y = Mean_SuccessRate)) +
+  geom_bar(stat = "identity", fill = "darkgreen") +
+  labs(
+    title = "Average Success Rate by Level (Multiple Targets - Phone)",
+    x = "Level",
+    y = "Success Rate (%)"
+  ) +
+  ylim(0,100) +
+  theme_minimal() +
+  my_theme
+
+ggplot(multi_level_stats, aes(x = Level, y = Mean_SuccessRate)) +
+  geom_line(color = "darkgreen", linewidth = 1) +
+  geom_point(size = 3) +
+  labs(
+    title = "Success Rate Trend Across Levels (Multiple Targets - Phone)",
+    x = "Level",
+    y = "Success Rate (%)"
+  ) +
+  ylim(90,100) +
+  theme_minimal() +
+  my_theme
+
+ggplot(multiple_phone, aes(x = FalseAlarms)) +
+  geom_histogram(binwidth = 1, fill = "orange", color = "black") +
+  labs(
+    title = "Distribution of False Alarms (Multiple Targets - Phone)",
+    x = "Number of False Alarms",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  my_theme
+
+ggplot(multi_level_stats, aes(x = Level, y = Mean_RT)) +
+  geom_line(color = "red") +
+  geom_point(size = 2) +
+  labs(
+    title = "Average Reaction Time Trend Across Levels (Multiple Targets Game)",
+    x = "Level",
+    y = "Mean Reaction Time (ms)"
+  ) +
+  theme_minimal() +
+  my_theme
+
+accuracy_overall_multi <- multiple_phone %>%
+  summarise(
+    Total_Attempts = n(),
+    Successful_Trials = sum(Completed == "true"),
+    Accuracy = Successful_Trials / Total_Attempts
+  )
+
+print(accuracy_overall_multi)
+
+accuracy_by_level_multi <- multiple_phone %>%
+  filter(Level %in% 1:10) %>%
+  group_by(Level) %>%
+  summarise(
+    Total_Attempts = n(),
+    Successful_Trials = sum(Completed == "true"),
+    Accuracy = Successful_Trials / Total_Attempts
+  )
+
+print(accuracy_by_level_multi)
+
+
+ggplot(accuracy_by_level_multi, aes(x = Level, y = Accuracy)) +
+  geom_line(color = "darkgreen", linewidth = 1) +
+  geom_point(size = 3) +
+  labs(
+    title = "Accuracy by Level (Multiple Targets - Phone)",
+    x = "Level",
+    y = "Accuracy"
+  ) +
+  theme_minimal() +
+  my_theme
+
+accuracy_by_level_multi$Accuracy <- accuracy_by_level_multi$Accuracy * 100
+
+inter_target_level <- multiple_phone %>%
+  filter(Completed == "true", AvgInterTargetTime.ms. > 0) %>%
+  group_by(Level) %>%
+  summarise(
+    Mean_InterTarget = mean(AvgInterTargetTime.ms., na.rm = TRUE)
+  )
+
+ggplot(inter_target_level, aes(x = Level, y = Mean_InterTarget)) +
+  geom_line(color = "purple") +
+  geom_point(size = 3) +
+  labs(
+    title = "Average Inter-Target Time Across Levels (Game)",
+    x = "Level",
+    y = "Average Inter-Target Time (ms)"
+  ) +
+  theme_minimal() +
+  my_theme
+```
+
+```{r}
+single_phone$Condition <- "Single"
+multiple_phone$Condition <- "Multiple"
+
+phone_combined <- bind_rows(single_phone, multiple_phone)
+
+my_theme <- theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    axis.line = element_line(color = "black")
+  )
+
+ggplot(
+  phone_combined %>% filter(Completed == "true", InitialResponseTime.ms. > 0),
+  aes(x = Condition, y = InitialResponseTime.ms., fill = Condition)
+) +
+  geom_boxplot() +
+  labs(
+    title = "Reaction Time Comparison (Single vs Multiple - Phone)",
+    x = "Condition",
+    y = "Reaction Time (ms)"
+  ) +
+  theme_minimal() +
+  my_theme
+
+ggplot(
+  phone_combined %>% filter(Completed == "true", InitialResponseTime.ms. > 0),
+  aes(x = InitialResponseTime.ms., fill = Condition)
+) +
+  geom_histogram(alpha = 0.6, position = "identity", binwidth = 500) +
+  labs(
+    title = "Reaction Time Distribution (Single vs Multiple - Phone)",
+    x = "Reaction Time (ms)",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  my_theme
+
+accuracy_compare <- phone_combined %>%
+  group_by(Condition) %>%
+  summarise(
+    Accuracy = mean(Completed == "true", na.rm = TRUE)
+  )
+
+print(accuracy_compare)
+
+ggplot(accuracy_compare, aes(x = Condition, y = Accuracy, fill = Condition)) +
+  geom_bar(stat = "identity") +
+  ylim(0,1) +
+  labs(
+    title = "Accuracy Comparison (Single vs Multiple - Phone)",
+    x = "Condition",
+    y = "Accuracy"
+  ) +
+  theme_minimal() +
+  my_theme
+
+ggplot(
+  phone_combined %>% filter(Completed == "true"),
+  aes(x = Condition, y = FalseAlarms, fill = Condition)
+) +
+  geom_boxplot() +
+  labs(
+    title = "False Alarm Comparison (Single vs Multiple - Phone)",
+    x = "Condition",
+    y = "False Alarms"
+  ) +
+  theme_minimal() +
+  my_theme
+```
+```{r}
+############################################################
+# HYPOTHESIS TESTING
+############################################################
+#######  Mann–Whitney U Test
+
+######   H0: Reaction time distribution is the same for Single and Multiple conditions.
+######   H1: Reaction time differs between Single and Multiple conditions.
+library(dplyr)
+
+# ----------------------------------------------------------
+# 1. Mann–Whitney U Test (Single vs Multiple Reaction Time)
+# ----------------------------------------------------------
+# H0: Reaction time distribution is the same for Single and Multiple
+# H1: Reaction time differs between Single and Multiple
+
+mw_test <- wilcox.test(
+  InitialResponseTime.ms. ~ Condition,
+  data = phone_combined %>%
+    filter(Completed == "true", InitialResponseTime.ms. > 0)
+)
+
+print(mw_test)
+```
+#### Hypothesis Testing
+###### Null Hypothesis (H₀):
+
+- There is no difference in reaction time between the Single and Multiple target conditions.
+
+###### Alternative Hypothesis (H₁):
+
+- There is a difference in reaction time between the two conditions.
+
+#### Observation
+Output:
+- W = 12788
+- p-value < 2.2e-16
+
+###### Interpretation:
+
+- p < 0.05 → statistically significant
+
+- Here the p-value is extremely small
+
+- Therefore: Reject the null hypothesis.
+- Reaction times in the Single and Multiple target conditions are significantly different.
+- Single RT - 3141ms
+- Multiple RT - 1772ms
+- Participants took significantly longer to detect targets in the Single target condition compared to the Multiple target condition.
+
+##### Insights
+- RT variable measures time to detect the first target.
+- In the multiple target condition, participants can detect any of several targets, which often leads to faster initial detection.
+- In the single target condition, participants must search until the specific target is found, which can increase search time.
+
+A Mann–Whitney U test was conducted to compare reaction times between the single-target and multiple-target phone conditions. The test revealed a statistically significant difference between the two conditions (W = 12788, p < 0.001). Reaction times were significantly higher in the single-target condition compared to the multiple-target condition, indicating that detecting a single specific target required longer visual search times.
+
+```{r}
+# Level effect for Single Target (Phone)
+
+single_level_test <- cor.test(
+  single_phone$Level,
+  single_phone$InitialResponseTime.ms.,
+  method = "spearman"
+)
+
+print(single_level_test)
+```
+
+##### Hypothesis
+Null Hypothesis (H₀)
+Game level has no effect on reaction time.
+
+Alternative Hypothesis (H₁)
+Reaction time changes significantly with level.
+
+
+There is a significant positive relationship between game level and reaction time. Reject H0.
+As the level increases, the reaction time also increases.
+This means:
+Higher levels require more visual search effort and attentional processing.
+
+```{r}
+# Level effect for Multiple Target (Phone)
+
+multi_level_test <- cor.test(
+  multiple_phone$Level,
+  multiple_phone$InitialResponseTime.ms.,
+  method = "spearman"
+)
+
+print(multi_level_test)
+
+inter_target_level_test <- cor.test(
+  multiple_phone$Level,
+  multiple_phone$AvgInterTargetTime.ms.,
+  method = "spearman"
+)
+
+print(inter_target_level_test)
+```
+##### Hypothesis
+Hypotheses
+
+H₀: There is no relationship between level and initial reaction time.
+H₁: There is a relationship between level and initial reaction time.
+
+Interpretation
+
+ρ = 0.1219 → very weak positive correlation
+p = 0.0896 → not statistically significant (p > 0.05)
+
+Decision:
+
+❌ Fail to reject the null hypothesis
+Meaning: Game level does not significantly affect the time to detect the first target in the multiple-target condition.
+
+Explanation: In a multiple-target task, participants can detect any of several targets, so the first detection time does not increase much with level.
+
+
+##### Hypothesis - second for multpile case
+Hypotheses
+
+H₀: There is no relationship between level and inter-target search time.
+H₁: There is a relationship between level and inter-target search time.
+
+Interpretation
+
+ρ = 0.6465 → strong positive correlation
+p < 0.001 → highly significant
+
+Decision:
+✔ Reject the null hypothesis
+
+Meaning: There is a strong positive relationship between level and inter-target search time.
+As the level increases, the time required to locate subsequent targets increases.
+
+
+Explanation:
+First target → can be spotted quickly among many targets
+Later targets → require more searching among distractors
+
+So difficulty mainly affects sequential search, not the first detection.
+
+
+Spearman correlation analysis was conducted to examine the effect of game level on reaction time in the multiple-target condition. The relationship between level and initial reaction time was weak and not statistically significant (ρ = 0.122, p = 0.089), indicating that the time required to detect the first target did not significantly increase with level.
+
+However, a strong positive correlation was observed between level and average inter-target time (ρ = 0.647, p < 0.001), suggesting that participants required progressively more time to locate additional targets at higher levels. This indicates that task difficulty primarily affected the sequential search process rather than initial target detection.
+
+```{r}
+# print(single_phone$InitialResponseTime.ms.)
+shapiro.test(single_phone$InitialResponseTime.ms.)
+
+boxplot(single_phone$InitialResponseTime.ms.)
+
+shapiro.test(multiple_phone$InitialResponseTime.ms.)
+
+boxplot(multiple_phone$InitialResponseTime.ms.)
+
+```
+
+#### obs
+p < 0.05 , not normal, so use non - parametric tests
+
+```{r}
+# Independent Samples t-test
+# Compare reaction time between Single and Multiple conditions
+
+ind_ttest <- t.test(
+  InitialResponseTime.ms. ~ Condition,
+  data = phone_combined %>%
+    filter(Completed == "true", InitialResponseTime.ms. > 0),
+  var.equal = FALSE   # Welch t-test (safer if variances differ)
+)
+
+print(ind_ttest)
+```
+### obs
+An independent samples t-test was conducted to compare reaction times between the single-target and multiple-target conditions. The results showed a significant difference between the two groups (t(468.51) = −7.55, p < 0.001). Participants responded faster in the multiple-target condition (M = 1741 ms) than in the single-target condition (M = 3067 ms), suggesting that detecting any one of several targets is easier than locating a specific single target.
+
+```{r}
+base <- getwd()
+path <- file.path(base, "data_brsm", "single", "lab")
+files <- sort(list.files(path = path,
+                         pattern = "\\.csv$",
+                         full.names = TRUE))
+
+single_lab_rt <- c()
+single_lab_acc <- c()
+single_lab_fr <- c()
+single_levelwise_rt <- NULL
+
+for (file in files) {
+  
+  df <- read.csv(file)
+  entries <- df$mouse.clicked_name
+  entries <- entries[!is.na(entries)]
+  
+  all_clicks <- c()
+  for (entry in entries) {
+    
+    clean <- gsub("\\[|\\]|'", "", entry)
+    clicks <- strsplit(clean, ",")[[1]]
+    clicks <- trimws(clicks)
+    
+    all_clicks <- c(all_clicks, clicks)
+  }
+  
+  total_clicks <- length(all_clicks)
+  hits <- sum(all_clicks == "target")
+  false_clicks <- total_clicks - hits
+  
+  accuracy <- hits / total_clicks
+  false_alarm_rate <- false_clicks / total_clicks
+  
+  single_lab_acc <- c(single_lab_acc, accuracy)
+  single_lab_fr  <- c(single_lab_fr, false_alarm_rate)
+  response_times <- df$mouse.time
+  response_times <- response_times[!is.na(response_times)]
+  response_times <- gsub("\\[|\\]", "", response_times)
+  response_times <- as.numeric(response_times)
+
+  single_levelwise_rt <- rbind(single_levelwise_rt, response_times)
+  single_lab_rt <- c(single_lab_rt,
+                          mean(response_times, na.rm = TRUE))
+}
+
+print(mean(single_lab_rt))
+
+path1 <- file.path(getwd(), "data_brsm", "multiple", "lab")
+
+files <- sort(list.files(path = path1,
+                         pattern = "\\.csv$",
+                         full.names = TRUE))
+
+multi_lab_rt <- c()
+multi_lab_acc <- c()
+multi_levelwise_rt <- NULL
+
+for (file in files) {
+  
+  df <- read.csv(file, stringsAsFactors = FALSE)
+  
+  # ----- RT calculation -----
+  
+  all_values <- c()
+  entries <- df$mouse.time
+  entries <- entries[!is.na(entries)]
+  for (entry in entries) {
+    
+    split_lists <- strsplit(gsub("\\]\\[", "]|||[", entry), "\\|\\|\\|")[[1]]
+    
+    for (lst in split_lists) {
+      
+      clean <- gsub("\\[|\\]", "", lst)
+      
+      if (nchar(clean) > 0) {
+        parsed <- as.numeric(strsplit(clean, ",")[[1]])
+        
+        if (length(parsed) > 0) {
+          s <- tail(parsed, 1)
+          all_values <- c(all_values, s / length(parsed))
+        }
+      }
+    }
+  }
+  multi_levelwise_rt <- rbind(multi_levelwise_rt, all_values)
+  multi_lab_rt <- c(multi_lab_rt, mean(all_values))
+  
+  
+  # ----- Accuracy calculation -----
+  
+  entries1 <- df$mouse.clicked_name
+  entries1 <- entries1[!is.na(entries1)]
+  
+  round_acc <- c()
+  
+  for (entry in entries1) {
+    
+    clean <- gsub("\\[|\\]|'", "", entry)
+    clicks <- strsplit(clean, ",")[[1]]
+    clicks <- trimws(clicks)
+    
+    unique_targets <- length(unique(clicks))
+    
+    acc <- unique_targets / 5
+    
+    round_acc <- c(round_acc, acc)
+  }
+  
+  multi_lab_acc <- c(multi_lab_acc, mean(round_acc))
+}
+
+hist(single_lab_rt,
+     main = "Single Lab - Mean RT",
+     probability = TRUE,
+     ylim = c(0, 3),
+     xlab = "Mean Reaction Time",
+     col = "lightblue",
+     border = "black")
+lines(density(single_lab_rt),
+      col = "blue",
+      lwd = 2)
+
+hist(multi_lab_rt,
+     main = "Multiple Lab - Mean RT",
+     ylim = c(0, 3),
+     probability = TRUE,
+     xlab = "Mean Reaction Time",
+     col = "lightgreen",
+     border = "black")
+lines(density(multi_lab_rt),
+      col = "darkgreen",
+      lwd = 2)
+
+lab_rt = boxplot(single_lab_rt, multi_lab_rt,
+        names = c("Single Target", "Multi Target"),
+        main = "Lab Reaction Time Comparison",
+        ylab = "Mean Reaction Time",
+        col = c("lightblue", "lightgreen"),
+        border = "black")
+
+print(sd(single_lab_rt))
+print(sd(multi_lab_rt))
+print(mean(multi_lab_acc))
+print(sd(multi_lab_acc))
+single_levelwise_rt <- colMeans(single_levelwise_rt, na.rm = TRUE)
+print(single_levelwise_rt, na.rm = TRUE)
+print(multi_levelwise_rt)
+
+library(ggplot2)
+ggsave("lab_RT.png", plot =lab_rt , width = 6, height = 4, units = "in", dpi = 300)
+```
+```{r}
+# Compute mean RT per player for Single Game
+
+
+single_game_rt <- c()
+
+for (file in files_game_single) {
+
+  df <- read.csv(file)
+
+  rt <- df$InitialResponseTime.ms.
+  rt <- rt[rt > 0]
+
+  single_game_rt <- c(single_game_rt, mean(rt, na.rm = TRUE))
+}
+
+single_compare <- data.frame(
+  Lab_RT = single_lab_rt,
+  Game_RT = single_game_rt
+)
+
+library(ggplot2)
+
+ggplot(single_compare, aes(x = Lab_RT, y = Game_RT)) +
+  geom_point(size = 3, color = "blue") +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  labs(
+    title = "Game RT vs Lab RT (Single Target)",
+    x = "Lab Reaction Time (ms)",
+    y = "Game Reaction Time (ms)"
+  ) +
+  theme_minimal()
+
+multi_game_rt <- multiple_phone %>%
+  filter(Completed == "true", InitialResponseTime.ms. > 0) %>%
+  group_by(PlayerID) %>%
+  summarise(Game_RT = mean(InitialResponseTime.ms., na.rm = TRUE))
+
+multi_lab_df <- data.frame(
+  PlayerID = unique(multiple_phone$PlayerID),
+  Lab_RT = multi_lab_rt
+)
+
+multi_compare <- merge(multi_game_rt, multi_lab_df, by = "PlayerID")
+
+ggplot(multi_compare, aes(x = Lab_RT, y = Game_RT)) +
+  geom_point(color = "darkgreen", size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  labs(
+    title = "Game RT vs Lab RT (Multiple Target)",
+    x = "Lab Reaction Time (ms)",
+    y = "Game Reaction Time (ms)"
+  ) +
+  theme_minimal()
+
+cor.test(single_compare$Lab_RT,
+         single_compare$Game_RT,
+         method = "spearman")
+
+
+```
+
