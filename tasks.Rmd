@@ -1,0 +1,936 @@
+---
+title: "Untitled"
+author: "miryala vaishnavi"
+date: "2026-04-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+
+
+library(dplyr)
+library(psych)
+
+# ============================================================
+ DATA LOADING
+# ============================================================
+
+base <- getwd()
+
+# ---------------- SINGLE PHONE RT ----------------
+path_sp  <- file.path(base, "data_brsm", "single", "phone")
+files_sp <- sort(list.files(path_sp, pattern = "\\.csv$", full.names = TRUE))
+
+single_phone_rt <- numeric(length(files_sp))
+single_phone_lw <- matrix(
+  NA_real_,
+  nrow = length(files_sp),
+  ncol = 15
+)
+
+for (i in seq_along(files_sp)) {
+
+  df <- read.csv(files_sp[i])
+
+  if (startsWith(basename(files_sp[i]), "6"))
+    df <- df[df$PlayerID != "Player_2", ]
+
+  df <- df[df$Completed == "true" &
+             df$InitialResponseTime.ms. > 0, ]
+
+  for (lv in 1:15) {
+
+    v <- df$InitialResponseTime.ms.[df$Level == lv]
+
+    if (length(v) > 0)
+      single_phone_lw[i, lv] <- mean(v)
+  }
+
+  single_phone_rt[i] <- mean(df$InitialResponseTime.ms.)
+}
+
+# ---------------- MULTI PHONE RT ----------------
+path_mp  <- file.path(base, "data_brsm", "multiple", "phone")
+files_mp <- sort(list.files(path_mp, pattern = "\\.csv$", full.names = TRUE))
+
+multi_phone_rt <- numeric(length(files_mp))
+multi_phone_lw <- matrix(
+  NA_real_,
+  nrow = length(files_mp),
+  ncol = 10
+)
+
+for (i in seq_along(files_mp)) {
+
+  df <- read.csv(files_mp[i])
+
+  df <- df[df$Completed == "true" &
+             df$InitialResponseTime.ms. > 0 &
+             df$Level %in% 1:10, ]
+
+  for (lv in 1:10) {
+
+    v <- df$InitialResponseTime.ms.[df$Level == lv]
+
+    if (length(v) > 0)
+      multi_phone_lw[i, lv] <- mean(v)
+  }
+
+  multi_phone_rt[i] <- if (nrow(df) > 0)
+    mean(df$InitialResponseTime.ms.)
+  else
+    NA_real_
+}
+
+# ---------------- SINGLE LAB RT ----------------
+path_sl  <- file.path(base, "data_brsm", "single", "lab")
+files_sl <- sort(list.files(path_sl, pattern = "\\.csv$", full.names = TRUE))
+
+single_lab_rt <- numeric(length(files_sl))
+single_lab_lw <- NULL
+
+for (i in seq_along(files_sl)) {
+
+  df <- read.csv(files_sl[i])
+
+  rt <- df$mouse.time[!is.na(df$mouse.time)]
+
+  rt <- suppressWarnings(
+    as.numeric(gsub("\\[|\\]", "", rt))
+  )
+
+  rt <- rt[!is.na(rt)]
+
+  single_lab_lw <- rbind(single_lab_lw, rt)
+
+  single_lab_rt[i] <- mean(rt)
+}
+
+single_lab_rt_ms <- single_lab_rt * 1000
+single_lab_lw_ms <- single_lab_lw * 1000
+
+# ---------------- MULTI LAB RT ----------------
+path_ml  <- file.path(base, "data_brsm", "multiple", "lab")
+files_ml <- sort(list.files(path_ml, pattern = "\\.csv$", full.names = TRUE))
+
+multi_lab_rt <- numeric(length(files_ml))
+multi_lab_lw <- NULL
+
+for (i in seq_along(files_ml)) {
+
+  df <- read.csv(files_ml[i], stringsAsFactors = FALSE)
+
+  vals <- c()
+
+  for (entry in df$mouse.time[!is.na(df$mouse.time)]) {
+
+    parts <- strsplit(
+      gsub("\\]\\[", "]|||[", entry),
+      "\\|\\|\\|"
+    )[[1]]
+
+    for (p in parts) {
+
+      cl <- gsub("\\[|\\]", "", p)
+
+      if (nchar(trimws(cl)) > 0) {
+
+        parsed <- suppressWarnings(
+          as.numeric(strsplit(cl, ",")[[1]])
+        )
+
+        parsed <- parsed[!is.na(parsed)]
+
+        if (length(parsed) > 0)
+          vals <- c(vals, tail(parsed, 1) / length(parsed))
+      }
+    }
+  }
+
+  multi_lab_lw <- rbind(multi_lab_lw, vals)
+
+  multi_lab_rt[i] <- mean(vals)
+}
+
+multi_lab_rt_ms <- multi_lab_rt * 1000
+
+multi_lab_lw_10_ms <- multi_lab_lw[
+  ,
+  1:min(10, ncol(multi_lab_lw)),
+  drop = FALSE
+] * 1000
+
+# ---------------- SANITY CHECK ----------------
+cat("=== SAMPLE SIZES ===\n")
+
+cat("Single Phone: n =", sum(!is.na(single_phone_rt)), "\n")
+cat("Multi  Phone: n =", sum(!is.na(multi_phone_rt)), "\n")
+cat("Single Lab:   n =", length(single_lab_rt_ms), "\n")
+cat("Multi  Lab:   n =", length(multi_lab_rt_ms), "\n\n")
+
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
+
+mw_effect_r <- function(W, n1, n2) {
+
+  U <- min(W, n1 * n2 - W)
+
+  mu_U <- n1 * n2 / 2
+
+  sig_U <- sqrt(
+    n1 * n2 * (n1 + n2 + 1) / 12
+  )
+
+  Z <- (U - mu_U) / sig_U
+
+  round(abs(Z) / sqrt(n1 + n2), 3)
+}
+
+wsr_effect_r <- function(V, n) {
+
+  mu_V <- n * (n + 1) / 4
+
+  sig_V <- sqrt(
+    n * (n + 1) * (2 * n + 1) / 24
+  )
+
+  Z <- (V - mu_V) / sig_V
+
+  round(abs(Z) / sqrt(n), 3)
+}
+
+alpha_grade <- function(a) {
+
+  ifelse(
+    a >= 0.9, "Excellent",
+    ifelse(
+      a >= 0.8, "Good",
+      ifelse(
+        a >= 0.7, "Acceptable",
+        ifelse(
+          a >= 0.6,
+          "Questionable",
+          "Poor"
+        )
+      )
+    )
+  )
+}
+
+# ============================================================
+# SECTION 1: BETWEEN-SUBJECTS RT COMPARISON
+# ============================================================
+
+cat("=======================================================\n")
+cat("SECTION 1: BETWEEN-SUBJECTS RT COMPARISON\n")
+cat("Single Target (n=21) vs Multiple Target (n=16)\n")
+cat("=======================================================\n\n")
+
+# ---------- 1A. GAME RT ----------
+cat("--- 1A. GAME RT: Single vs Multiple ---\n")
+
+cat("H0: RT distribution is the same in both conditions\n")
+
+cat("H1: RT distributions differ between conditions\n\n")
+
+n1_sp <- sum(!is.na(single_phone_rt))
+n2_mp <- sum(!is.na(multi_phone_rt))
+
+mw1a <- wilcox.test(
+  single_phone_rt,
+  multi_phone_rt,
+  alternative = "two.sided",
+  exact = FALSE
+)
+
+print(mw1a)
+
+cat(sprintf(
+  "Effect size r = %.3f\n",
+  mw_effect_r(mw1a$statistic, n1_sp, n2_mp)
+))
+
+cat(sprintf(
+  "Single Game: M = %.2f ms, SD = %.2f ms\n",
+  mean(single_phone_rt, na.rm = TRUE),
+  sd(single_phone_rt, na.rm = TRUE)
+))
+
+cat(sprintf(
+  "Multi  Game: M = %.2f ms, SD = %.2f ms\n\n",
+  mean(multi_phone_rt, na.rm = TRUE),
+  sd(multi_phone_rt, na.rm = TRUE)
+))
+
+# ---------- 1B. LAB RT ----------
+cat("--- 1B. LAB RT: Single vs Multiple ---\n")
+
+cat("H0: RT distribution is the same in both conditions\n")
+
+cat("H1: RT distributions differ between conditions\n\n")
+
+n1_sl <- length(single_lab_rt_ms)
+n2_ml <- length(multi_lab_rt_ms)
+
+mw1b <- wilcox.test(
+  single_lab_rt_ms,
+  multi_lab_rt_ms,
+  alternative = "two.sided",
+  exact = FALSE
+)
+
+print(mw1b)
+
+cat(sprintf(
+  "Effect size r = %.3f\n",
+  mw_effect_r(mw1b$statistic, n1_sl, n2_ml)
+))
+
+cat(sprintf(
+  "Single Lab: M = %.2f ms, SD = %.2f ms\n",
+  mean(single_lab_rt_ms),
+  sd(single_lab_rt_ms)
+))
+
+cat(sprintf(
+  "Multi  Lab: M = %.2f ms, SD = %.2f ms\n\n",
+  mean(multi_lab_rt_ms),
+  sd(multi_lab_rt_ms)
+))
+
+# ============================================================
+# SECTION 2: WITHIN-SUBJECTS RT COMPARISON
+# ============================================================
+
+cat("=======================================================\n")
+cat("SECTION 2: WITHIN-SUBJECTS RT COMPARISON\n")
+cat("Game vs Lab (same participants — paired test)\n")
+cat("Test: Wilcoxon Signed-Rank\n")
+cat("=======================================================\n\n")
+
+# ---------- 2A. SINGLE TARGET ----------
+cat("--- 2A. SINGLE TARGET: Game vs Lab ---\n")
+
+cat("H0: No difference between Game RT and Lab RT (Single Target)\n")
+
+cat("H1: Game RT and Lab RT are significantly different\n\n")
+
+valid_idx <- which(
+  !is.na(single_phone_rt) &
+    !is.na(single_lab_rt_ms)
+)
+
+wcx2a <- wilcox.test(
+  single_phone_rt[valid_idx],
+  single_lab_rt_ms[valid_idx],
+  paired = TRUE,
+  exact = FALSE
+)
+
+print(wcx2a)
+
+cat(sprintf(
+  "Effect size r = %.3f\n",
+  wsr_effect_r(wcx2a$statistic, length(valid_idx))
+))
+
+cat(sprintf(
+  "Game: M = %.2f ms | Lab: M = %.2f ms\n",
+  mean(single_phone_rt, na.rm = TRUE),
+  mean(single_lab_rt_ms)
+))
+
+cat(sprintf(
+  "Median difference (Game - Lab) = %.2f ms\n\n",
+  median(
+    single_phone_rt - single_lab_rt_ms,
+    na.rm = TRUE
+  )
+))
+
+# ---------- 2B. MULTIPLE TARGET ----------
+cat("--- 2B. MULTIPLE TARGET: Game vs Lab ---\n")
+
+cat("H0: No difference between Game RT and Lab RT (Multiple Target)\n")
+
+cat("H1: Game RT and Lab RT are significantly different\n\n")
+
+valid_m <- which(!is.na(multi_phone_rt))
+
+mp_clean <- multi_phone_rt[valid_m]
+ml_clean <- multi_lab_rt_ms[valid_m]
+
+if (length(mp_clean) != length(ml_clean)) {
+
+  stop(
+    "Length mismatch after NA removal: multi phone vs multi lab."
+  )
+}
+
+wcx2b <- wilcox.test(
+  mp_clean,
+  ml_clean,
+  paired = TRUE,
+  alternative = "two.sided",
+  exact = FALSE
+)
+
+print(wcx2b)
+
+cat(sprintf(
+  "Effect size r = %.3f\n",
+  wsr_effect_r(wcx2b$statistic, length(mp_clean))
+))
+
+cat(sprintf(
+  "Game: M = %.2f ms | Lab: M = %.2f ms\n",
+  mean(mp_clean),
+  mean(ml_clean)
+))
+
+cat(sprintf(
+  "Median difference (Game - Lab) = %.2f ms\n\n",
+  median(mp_clean - ml_clean)
+))
+
+# ============================================================
+# SECTION 3: TASK ORDER EFFECT
+# ============================================================
+
+cat("=======================================================\n")
+cat("SECTION 3: TASK ORDER EFFECT\n")
+cat("=======================================================\n\n")
+
+cat("Ordering (from correlations.R observations):\n")
+
+cat("  Single — odd  positions (1,3,5,...): Phone first\n")
+
+cat("         — even positions (2,4,6,...): Lab   first\n")
+
+cat("  Multi  — odd  positions (1,3,5,...): Lab   first\n")
+
+cat("         — even positions (2,4,6,...): Phone first\n\n")
+
+n_sp <- length(single_phone_rt)
+n_sl <- length(single_lab_rt_ms)
+
+sg_phonefirst <- single_phone_rt[seq(1, n_sp, 2)]
+sg_labfirst   <- single_phone_rt[seq(2, n_sp, 2)]
+
+sl_phonefirst <- single_lab_rt_ms[seq(1, n_sl, 2)]
+sl_labfirst   <- single_lab_rt_ms[seq(2, n_sl, 2)]
+
+n_mp <- length(multi_phone_rt)
+n_ml <- length(multi_lab_rt_ms)
+
+mg_labfirst   <- multi_phone_rt[seq(1, n_mp, 2)]
+mg_phonefirst <- multi_phone_rt[seq(2, n_mp, 2)]
+
+ml_labfirst   <- multi_lab_rt_ms[seq(1, n_ml, 2)]
+ml_phonefirst <- multi_lab_rt_ms[seq(2, n_ml, 2)]
+
+cat("--- SINGLE GROUP descriptives ---\n")
+
+cat(sprintf(
+  "Phone-first (n=%d): Game M=%.0f ms | Lab M=%.0f ms\n",
+  length(sg_phonefirst),
+  mean(sg_phonefirst, na.rm = TRUE),
+  mean(sl_phonefirst, na.rm = TRUE)
+))
+
+cat(sprintf(
+  "Lab-first   (n=%d): Game M=%.0f ms | Lab M=%.0f ms\n\n",
+  length(sg_labfirst),
+  mean(sg_labfirst, na.rm = TRUE),
+  mean(sl_labfirst, na.rm = TRUE)
+))
+
+cat("--- MULTI GROUP descriptives ---\n")
+
+cat(sprintf(
+  "Lab-first   (n=%d): Game M=%.0f ms | Lab M=%.0f ms\n",
+  length(mg_labfirst),
+  mean(mg_labfirst, na.rm = TRUE),
+  mean(ml_labfirst, na.rm = TRUE)
+))
+
+cat(sprintf(
+  "Phone-first (n=%d): Game M=%.0f ms | Lab M=%.0f ms\n\n",
+  length(mg_phonefirst),
+  mean(mg_phonefirst, na.rm = TRUE),
+  mean(ml_phonefirst, na.rm = TRUE)
+))
+
+# ---------- 3A. Single GAME RT ----------
+cat("--- 3A. Single GAME RT: Phone-first vs Lab-first ---\n")
+
+cat("H0: Task order has no effect on Game RT (Single group)\n")
+
+cat("H1: Task order affects Game RT\n\n")
+
+mw3a <- wilcox.test(
+  sg_phonefirst,
+  sg_labfirst,
+  alternative = "two.sided",
+  exact = FALSE
+)
+
+print(mw3a)
+
+cat(sprintf(
+  "Effect size r = %.3f\n\n",
+  mw_effect_r(
+    mw3a$statistic,
+    length(na.omit(sg_phonefirst)),
+    length(na.omit(sg_labfirst))
+  )
+))
+
+# ---------- 3B. Single LAB RT ----------
+cat("--- 3B. Single LAB RT: Phone-first vs Lab-first ---\n")
+
+cat("H0: Task order has no effect on Lab RT (Single group)\n")
+
+cat("H1: Task order affects Lab RT\n\n")
+
+mw3b <- wilcox.test(
+  sl_phonefirst,
+  sl_labfirst,
+  alternative = "two.sided",
+  exact = FALSE
+)
+
+print(mw3b)
+
+cat(sprintf(
+  "Effect size r = %.3f\n\n",
+  mw_effect_r(
+    mw3b$statistic,
+    length(na.omit(sl_phonefirst)),
+    length(na.omit(sl_labfirst))
+  )
+))
+
+# ---------- 3C. Multi GAME RT ----------
+cat("--- 3C. Multi GAME RT: Lab-first vs Phone-first ---\n")
+
+cat("H0: Task order has no effect on Game RT (Multi group)\n")
+
+cat("H1: Task order affects Game RT\n\n")
+
+mw3c <- wilcox.test(
+  mg_labfirst,
+  mg_phonefirst,
+  alternative = "two.sided",
+  exact = FALSE
+)
+
+print(mw3c)
+
+cat(sprintf(
+  "Effect size r = %.3f\n\n",
+  mw_effect_r(
+    mw3c$statistic,
+    length(na.omit(mg_labfirst)),
+    length(na.omit(mg_phonefirst))
+  )
+))
+
+# ---------- 3D. Multi LAB RT ----------
+cat("--- 3D. Multi LAB RT: Lab-first vs Phone-first ---\n")
+
+cat("H0: Task order has no effect on Lab RT (Multi group)\n")
+
+cat("H1: Task order affects Lab RT\n\n")
+
+mw3d <- wilcox.test(
+  ml_labfirst,
+  ml_phonefirst,
+  alternative = "two.sided",
+  exact = FALSE
+)
+
+print(mw3d)
+
+cat(sprintf(
+  "Effect size r = %.3f\n\n",
+  mw_effect_r(
+    mw3d$statistic,
+    length(na.omit(ml_labfirst)),
+    length(na.omit(ml_phonefirst))
+  )
+))
+
+# ============================================================
+# SECTION 4: RELIABILITY — CRONBACH'S ALPHA
+# ============================================================
+
+cat("=======================================================\n")
+cat("SECTION 4: RELIABILITY — CRONBACH'S ALPHA\n")
+cat("=======================================================\n\n")
+
+cat("Threshold: α ≥ 0.9 Excellent | ≥ 0.8 Good |\n")
+
+cat("           ≥ 0.7 Acceptable  | ≥ 0.6 Questionable | < 0.6 Poor\n\n")
+
+compute_alpha <- function(
+  lw_matrix,
+  label,
+  max_cols = NULL
+) {
+
+  cat("---", label, "---\n")
+
+  df <- as.data.frame(lw_matrix)
+
+  if (!is.null(max_cols))
+    df <- df[
+      ,
+      seq_len(min(max_cols, ncol(df))),
+      drop = FALSE
+    ]
+
+  colnames(df) <- paste0(
+    "Level_",
+    seq_len(ncol(df))
+  )
+
+  valid_cols <- colSums(!is.na(df)) > 1
+
+  df <- df[
+    ,
+    valid_cols,
+    drop = FALSE
+  ]
+
+  if (ncol(df) < 2) {
+
+    cat(
+      "  Cannot compute: fewer than 2 valid levels remaining.\n\n"
+    )
+
+    return(invisible(NULL))
+  }
+
+  result <- psych::alpha(
+    df,
+    na.rm = TRUE,
+    check.keys = TRUE,
+    warnings = FALSE
+  )
+
+  tot <- result$total
+
+  cat(sprintf(
+    "  Cronbach's α     = %.4f  [%s]\n",
+    tot$raw_alpha,
+    alpha_grade(tot$raw_alpha)
+  ))
+
+  cat(sprintf(
+    "  Standardized α   = %.4f\n",
+    tot$std.alpha
+  ))
+
+  cat(sprintf(
+    "  Avg inter-item r = %.4f\n",
+    tot$average_r
+  ))
+
+  cat(sprintf(
+    "  Levels included  = %d\n\n",
+    ncol(df)
+  ))
+
+  invisible(result)
+}
+
+a_sg <- compute_alpha(
+  single_phone_lw,
+  "Single Target — GAME  (Levels 1–15)",
+  15
+)
+
+a_mg <- compute_alpha(
+  multi_phone_lw,
+  "Multi  Target — GAME  (Levels 1–10)",
+  10
+)
+
+a_sl <- compute_alpha(
+  single_lab_lw_ms,
+  "Single Target — LAB   (Trials 1–15)",
+  15
+)
+
+a_ml <- compute_alpha(
+  multi_lab_lw_10_ms,
+  "Multi  Target — LAB   (Trials 1–10)",
+  10
+)
+
+cat("=======================================================\n")
+cat("RELIABILITY SUMMARY\n")
+cat("=======================================================\n")
+
+get_alpha <- function(x)
+  if (is.null(x)) NA else round(x$total$raw_alpha, 4)
+
+alpha_vals <- c(
+  get_alpha(a_sg),
+  get_alpha(a_mg),
+  get_alpha(a_sl),
+  get_alpha(a_ml)
+)
+
+summary_df <- data.frame(
+  Condition = c(
+    "Single Game",
+    "Multi Game",
+    "Single Lab",
+    "Multi Lab"
+  ),
+  Alpha = alpha_vals,
+  Grade = alpha_grade(alpha_vals),
+  stringsAsFactors = FALSE
+)
+
+print(summary_df, row.names = FALSE)
+
+cat("\n")
+
+# ============================================================
+# SECTION 5: RESULTS SUMMARY
+# ============================================================
+
+cat("=======================================================\n")
+cat("RESULTS SUMMARY\n")
+cat("=======================================================\n\n")
+
+cat("BETWEEN-SUBJECTS (Single vs Multi):\n")
+
+cat(sprintf(
+  "  Game: W = %.0f, p = %s\n",
+  mw1a$statistic,
+  format(mw1a$p.value, digits = 4)
+))
+
+cat(sprintf(
+  "  Lab:  W = %.0f, p = %s\n\n",
+  mw1b$statistic,
+  format(mw1b$p.value, digits = 4)
+))
+
+cat("WITHIN-SUBJECTS (Game vs Lab):\n")
+
+cat(sprintf(
+  "  Single: V = %.0f, p = %s\n",
+  wcx2a$statistic,
+  format(wcx2a$p.value, digits = 4)
+))
+
+cat(sprintf(
+  "  Multi:  V = %.0f, p = %s\n\n",
+  wcx2b$statistic,
+  format(wcx2b$p.value, digits = 4)
+))
+
+cat("TASK ORDER EFFECT:\n")
+
+cat(sprintf(
+  "  Single Game: W = %.0f, p = %s\n",
+  mw3a$statistic,
+  format(mw3a$p.value, digits = 4)
+))
+
+cat(sprintf(
+  "  Single Lab:  W = %.0f, p = %s\n",
+  mw3b$statistic,
+  format(mw3b$p.value, digits = 4)
+))
+
+cat(sprintf(
+  "  Multi  Game: W = %.0f, p = %s\n",
+  mw3c$statistic,
+  format(mw3c$p.value, digits = 4)
+))
+
+cat(sprintf(
+  "  Multi  Lab:  W = %.0f, p = %s\n\n",
+  mw3d$statistic,
+  format(mw3d$p.value, digits = 4)
+))
+
+cat("RELIABILITY (Cronbach's α):\n")
+
+print(summary_df, row.names = FALSE)
+
+library(ggplot2)
+
+reliability_df <- data.frame(
+  Condition = c(
+    "Single Game",
+    "Multiple Game",
+    "Single Lab",
+    "Multiple Lab"
+  ),
+
+  Alpha = c(
+    0.2788,
+    0.3693,
+    0.7439,
+    0.7780
+  )
+)
+
+ggplot(
+  reliability_df,
+  aes(
+    x = Condition,
+    y = Alpha,
+    fill = Condition
+  )
+) +
+  geom_bar(
+    stat = "identity",
+    width = 0.7
+  ) +
+  geom_hline(
+    yintercept = 0.70,
+    linetype = "dashed"
+  ) +
+  ylim(0, 1) +
+  labs(
+    title = "Cronbach's Alpha Across Conditions",
+    x = "Condition",
+    y = "Cronbach's Alpha"
+  ) +
+  theme_minimal()
+
+task_order_df <- data.frame(
+
+  RT = c(
+    sg_phonefirst,
+    sg_labfirst,
+    sl_phonefirst,
+    sl_labfirst,
+    mg_phonefirst,
+    mg_labfirst,
+    ml_phonefirst,
+    ml_labfirst
+  ),
+
+  Modality = c(
+    rep(
+      "Game",
+      length(sg_phonefirst) +
+        length(sg_labfirst)
+    ),
+
+    rep(
+      "Lab",
+      length(sl_phonefirst) +
+        length(sl_labfirst)
+    ),
+
+    rep(
+      "Game",
+      length(mg_phonefirst) +
+        length(mg_labfirst)
+    ),
+
+    rep(
+      "Lab",
+      length(ml_phonefirst) +
+        length(ml_labfirst)
+    )
+  ),
+
+  Load = c(
+
+    rep(
+      "Single",
+      length(sg_phonefirst) +
+        length(sg_labfirst) +
+        length(sl_phonefirst) +
+        length(sl_labfirst)
+    ),
+
+    rep(
+      "Multiple",
+      length(mg_phonefirst) +
+        length(mg_labfirst) +
+        length(ml_phonefirst) +
+        length(ml_labfirst)
+    )
+  ),
+
+  Order = c(
+    rep(
+      "Phone First",
+      length(sg_phonefirst)
+    ),
+
+    rep(
+      "Lab First",
+      length(sg_labfirst)
+    ),
+
+    rep(
+      "Phone First",
+      length(sl_phonefirst)
+    ),
+
+    rep(
+      "Lab First",
+      length(sl_labfirst)
+    ),
+
+    rep(
+      "Phone First",
+      length(mg_phonefirst)
+    ),
+
+    rep(
+      "Lab First",
+      length(mg_labfirst)
+    ),
+
+    rep(
+      "Phone First",
+      length(ml_phonefirst)
+    ),
+
+    rep(
+      "Lab First",
+      length(ml_labfirst)
+    )
+  )
+)
+
+ggplot(
+  task_order_df,
+  aes(
+    x = Order,
+    y = RT,
+    fill = Order
+  )
+) +
+  geom_boxplot() +
+  facet_grid(Load ~ Modality) +
+  labs(
+    title = "Task Order Effects Across Conditions",
+    x = "Task Order",
+    y = "Reaction Time (ms)"
+  ) +
+  theme_minimal()
+```
+
+

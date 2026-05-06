@@ -1,0 +1,634 @@
+---
+title: "Untitled"
+author: "miryala vaishnavi"
+date: "2026-04-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# ============================================================
+# Aligned Rank Transform ANOVA for 2×2 Mixed Design
+# ============================================================
+
+library(ARTool)
+library(emmeans)
+library(dplyr)
+library(ggplot2)
+
+# ============================================================
+# SECTION 0: DATA LOADING
+# ============================================================
+
+base <- getwd()
+
+# ---------------- SINGLE PHONE RT ----------------
+path_sp  <- file.path(base, "data_brsm", "single", "phone")
+files_sp <- sort(list.files(path_sp, pattern = "\\.csv$", full.names = TRUE))
+
+single_phone_rt <- rep(NA_real_, length(files_sp))
+
+for (i in seq_along(files_sp)) {
+  df <- read.csv(files_sp[i])
+
+  if (startsWith(basename(files_sp[i]), "6"))
+    df <- df[df$PlayerID != "Player_2", ]
+
+  df <- df[df$Completed == "true" &
+             df$InitialResponseTime.ms. > 0, ]
+
+  if (nrow(df) > 0)
+    single_phone_rt[i] <- mean(df$InitialResponseTime.ms., na.rm = TRUE)
+}
+
+# ---------------- MULTI PHONE RT ----------------
+path_mp  <- file.path(base, "data_brsm", "multiple", "phone")
+files_mp <- sort(list.files(path_mp, pattern = "\\.csv$", full.names = TRUE))
+
+multi_phone_rt <- rep(NA_real_, length(files_mp))
+
+for (i in seq_along(files_mp)) {
+  df <- read.csv(files_mp[i])
+
+  df <- df[df$Completed == "true" &
+             df$InitialResponseTime.ms. > 0 &
+             df$Level %in% 1:10, ]
+
+  if (nrow(df) > 0)
+    multi_phone_rt[i] <- mean(df$InitialResponseTime.ms., na.rm = TRUE)
+}
+
+# ---------------- SINGLE LAB RT ----------------
+path_sl  <- file.path(base, "data_brsm", "single", "lab")
+files_sl <- sort(list.files(path_sl, pattern = "\\.csv$", full.names = TRUE))
+
+single_lab_rt_ms <- rep(NA_real_, length(files_sl))
+
+for (i in seq_along(files_sl)) {
+  df <- read.csv(files_sl[i])
+
+  rt <- df$mouse.time[!is.na(df$mouse.time)]
+  rt <- suppressWarnings(as.numeric(gsub("\\[|\\]", "", rt)))
+  rt <- rt[!is.na(rt)]
+
+  if (length(rt) > 0)
+    single_lab_rt_ms[i] <- mean(rt) * 1000
+}
+
+# ---------------- MULTI LAB RT ----------------
+path_ml  <- file.path(base, "data_brsm", "multiple", "lab")
+files_ml <- sort(list.files(path_ml, pattern = "\\.csv$", full.names = TRUE))
+
+multi_lab_rt_ms <- rep(NA_real_, length(files_ml))
+
+for (i in seq_along(files_ml)) {
+
+  df <- read.csv(files_ml[i], stringsAsFactors = FALSE)
+
+  vals <- c()
+
+  for (entry in df$mouse.time[!is.na(df$mouse.time)]) {
+
+    parts <- strsplit(
+      gsub("\\]\\[", "]|||[", entry),
+      "\\|\\|\\|"
+    )[[1]]
+
+    for (p in parts) {
+
+      cl <- gsub("\\[|\\]", "", p)
+
+      if (nchar(trimws(cl)) > 0) {
+
+        parsed <- suppressWarnings(
+          as.numeric(strsplit(cl, ",")[[1]])
+        )
+
+        parsed <- parsed[!is.na(parsed)]
+
+        if (length(parsed) > 0)
+          vals <- c(vals, tail(parsed, 1) / length(parsed))
+      }
+    }
+  }
+
+  if (length(vals) > 0)
+    multi_lab_rt_ms[i] <- mean(vals) * 1000
+}
+
+# ---------------- SANITY CHECK ----------------
+cat("=== DATA LOADING COMPLETE ===\n")
+
+cat(sprintf(
+  "Single Phone: n = %d (non-NA = %d)\n",
+  length(single_phone_rt),
+  sum(!is.na(single_phone_rt))
+))
+
+cat(sprintf(
+  "Single Lab:   n = %d (non-NA = %d)\n",
+  length(single_lab_rt_ms),
+  sum(!is.na(single_lab_rt_ms))
+))
+
+cat(sprintf(
+  "Multi  Phone: n = %d (non-NA = %d)\n",
+  length(multi_phone_rt),
+  sum(!is.na(multi_phone_rt))
+))
+
+cat(sprintf(
+  "Multi  Lab:   n = %d (non-NA = %d)\n\n",
+  length(multi_lab_rt_ms),
+  sum(!is.na(multi_lab_rt_ms))
+))
+
+# ============================================================
+# SECTION 1: BUILD LONG FORMAT DATA FRAME
+# ============================================================
+
+n_single_files <- max(
+  length(single_phone_rt),
+  length(single_lab_rt_ms)
+)
+
+if (length(single_phone_rt) < length(single_lab_rt_ms))
+  single_phone_rt <- c(
+    single_phone_rt,
+    rep(NA, length(single_lab_rt_ms) - length(single_phone_rt))
+  )
+
+if (length(single_lab_rt_ms) < length(single_phone_rt))
+  single_lab_rt_ms <- c(
+    single_lab_rt_ms,
+    rep(NA, length(single_phone_rt) - length(single_lab_rt_ms))
+  )
+
+single_complete <- which(
+  !is.na(single_phone_rt) &
+    !is.na(single_lab_rt_ms)
+)
+
+cat(sprintf(
+  "Single: %d participants have complete (Game + Lab) data\n",
+  length(single_complete)
+))
+
+single_long <- data.frame(
+  Participant = rep(
+    paste0("S", single_complete),
+    each = 2
+  ),
+  TargetLoad = "Single",
+  Modality = rep(
+    c("Game", "Lab"),
+    times = length(single_complete)
+  ),
+  RT_ms = c(
+    rbind(
+      single_phone_rt[single_complete],
+      single_lab_rt_ms[single_complete]
+    )
+  ),
+  stringsAsFactors = FALSE
+)
+
+multi_complete <- which(
+  !is.na(multi_phone_rt) &
+    !is.na(multi_lab_rt_ms)
+)
+
+cat(sprintf(
+  "Multi:  %d participants have complete (Game + Lab) data\n\n",
+  length(multi_complete)
+))
+
+multi_long <- data.frame(
+  Participant = rep(
+    paste0("M", multi_complete),
+    each = 2
+  ),
+  TargetLoad = "Multiple",
+  Modality = rep(
+    c("Game", "Lab"),
+    times = length(multi_complete)
+  ),
+  RT_ms = c(
+    rbind(
+      multi_phone_rt[multi_complete],
+      multi_lab_rt_ms[multi_complete]
+    )
+  ),
+  stringsAsFactors = FALSE
+)
+
+long_df <- bind_rows(single_long, multi_long)
+
+long_df$TargetLoad <- factor(
+  long_df$TargetLoad,
+  levels = c("Single", "Multiple")
+)
+
+long_df$Modality <- factor(
+  long_df$Modality,
+  levels = c("Game", "Lab")
+)
+
+long_df$Participant <- factor(long_df$Participant)
+
+cat("=== LONG FORMAT DATA STRUCTURE ===\n")
+
+cat(sprintf(
+  "Total rows    : %d\n",
+  nrow(long_df)
+))
+
+cat(sprintf(
+  "Participants  : %d\n",
+  nlevels(long_df$Participant)
+))
+
+cat(sprintf(
+  "Single group  : %d participants\n",
+  length(single_complete)
+))
+
+cat(sprintf(
+  "Multiple group: %d participants\n",
+  length(multi_complete)
+))
+
+cat("\nFirst few rows:\n")
+print(head(long_df, 8))
+
+cat("\nCell means (ms):\n")
+
+print(
+  long_df %>%
+    group_by(TargetLoad, Modality) %>%
+    summarise(
+      n = n(),
+      M_RT = round(mean(RT_ms), 2),
+      SD_RT = round(sd(RT_ms), 2),
+      Med_RT = round(median(RT_ms), 2),
+      .groups = "drop"
+    )
+)
+
+# ============================================================
+# SECTION 2: ART ANOVA
+# ============================================================
+
+art_model <- art(
+  RT_ms ~ TargetLoad * Modality + (1 | Participant),
+  data = long_df
+)
+
+cat("=== ART MODEL SUMMARY ===\n")
+print(summary(art_model))
+
+cat("\n=== ART ANOVA TABLE ===\n")
+
+art_anova <- anova(art_model)
+print(art_anova)
+
+# ============================================================
+# SECTION 3: EFFECT SIZES
+# ============================================================
+
+cat("\n=== EFFECT SIZES (Partial Eta Squared) ===\n")
+
+compute_eta2 <- function(F_val, df_num, df_den) {
+  round((F_val * df_num) /
+          (F_val * df_num + df_den), 4)
+}
+
+grade_eta2 <- function(e) {
+  ifelse(
+    e >= 0.14, "Large",
+    ifelse(e >= 0.06, "Medium", "Small")
+  )
+}
+
+F_load     <- art_anova$F[1]
+df_load    <- art_anova$Df[1]
+dfres_load <- art_anova$Df.res[1]
+
+F_mod      <- art_anova$F[2]
+df_mod     <- art_anova$Df[2]
+dfres_mod  <- art_anova$Df.res[2]
+
+F_int      <- art_anova$F[3]
+df_int     <- art_anova$Df[3]
+dfres_int  <- art_anova$Df.res[3]
+
+eta2_load <- compute_eta2(F_load, df_load, dfres_load)
+eta2_mod  <- compute_eta2(F_mod, df_mod, dfres_mod)
+eta2_int  <- compute_eta2(F_int, df_int, dfres_int)
+
+effect_df <- data.frame(
+  Effect = c(
+    "Target Load (Between)",
+    "Modality (Within)",
+    "TargetLoad × Modality (Interaction)"
+  ),
+  F_value = round(
+    c(F_load, F_mod, F_int), 3
+  ),
+  df_num = c(df_load, df_mod, df_int),
+  df_den = c(dfres_load, dfres_mod, dfres_int),
+  p_value = round(
+    c(
+      art_anova$`Pr(>F)`[1],
+      art_anova$`Pr(>F)`[2],
+      art_anova$`Pr(>F)`[3]
+    ),
+    5
+  ),
+  partial_eta2 = c(
+    eta2_load,
+    eta2_mod,
+    eta2_int
+  ),
+  Size = grade_eta2(
+    c(
+      eta2_load,
+      eta2_mod,
+      eta2_int
+    )
+  )
+)
+
+print(effect_df, row.names = FALSE)
+
+# ============================================================
+# SECTION 4: POST-HOC TESTS
+# ============================================================
+
+cat("\n=======================================================\n")
+cat("POST-HOC PAIRWISE COMPARISONS\n")
+cat("=======================================================\n\n")
+
+interaction_p <- art_anova$`Pr(>F)`[3]
+
+if (interaction_p < 0.05) {
+
+  cat("*** Interaction is SIGNIFICANT → running post-hoc tests ***\n\n")
+
+  ph <- art.con(
+    art_model,
+    "TargetLoad:Modality",
+    adjust = "bonferroni"
+  )
+
+  print(ph)
+
+} else {
+
+  cat(
+    "Interaction NOT significant (p =",
+    round(interaction_p, 4),
+    ")\n"
+  )
+
+  cat("→ Interpret main effects only\n\n")
+}
+
+cat("\n--- Main Effect Post-Hoc: MODALITY (Game vs Lab) ---\n")
+
+ph_modality <- art.con(
+  art_model,
+  "Modality",
+  adjust = "bonferroni"
+)
+
+print(ph_modality)
+
+cat("\n--- Main Effect Post-Hoc: TARGET LOAD (Single vs Multiple) ---\n")
+
+ph_load <- art.con(
+  art_model,
+  "TargetLoad",
+  adjust = "bonferroni"
+)
+
+print(ph_load)
+
+# ============================================================
+# SECTION 5: SIMPLE EFFECTS ANALYSIS
+# ============================================================
+
+cat("\n=======================================================\n")
+cat("SIMPLE EFFECTS ANALYSIS\n")
+cat("=======================================================\n\n")
+
+single_data <- long_df[
+  long_df$TargetLoad == "Single",
+]
+
+wt_single <- wilcox.test(
+  RT_ms ~ Modality,
+  data = single_data,
+  paired = TRUE,
+  exact = FALSE
+)
+
+multi_data <- long_df[
+  long_df$TargetLoad == "Multiple",
+]
+
+wt_multi <- wilcox.test(
+  RT_ms ~ Modality,
+  data = multi_data,
+  paired = TRUE,
+  exact = FALSE
+)
+
+game_data <- long_df[
+  long_df$Modality == "Game",
+]
+
+wt_game <- wilcox.test(
+  RT_ms ~ TargetLoad,
+  data = game_data,
+  exact = FALSE
+)
+
+lab_data <- long_df[
+  long_df$Modality == "Lab",
+]
+
+wt_lab <- wilcox.test(
+  RT_ms ~ TargetLoad,
+  data = lab_data,
+  exact = FALSE
+)
+
+alpha_corrected <- 0.05 / 4
+
+cat(sprintf(
+  "Bonferroni-corrected α for simple effects = %.4f\n\n",
+  alpha_corrected
+))
+
+simple_effects <- data.frame(
+  Comparison = c(
+    "Game vs Lab | Single Target",
+    "Game vs Lab | Multiple Target",
+    "Single vs Multi | Game",
+    "Single vs Multi | Lab"
+  ),
+  Test = c(
+    "Wilcoxon SR (paired)",
+    "Wilcoxon SR (paired)",
+    "Mann-Whitney U",
+    "Mann-Whitney U"
+  ),
+  Statistic = c(
+    wt_single$statistic,
+    wt_multi$statistic,
+    wt_game$statistic,
+    wt_lab$statistic
+  ),
+  p_value = round(
+    c(
+      wt_single$p.value,
+      wt_multi$p.value,
+      wt_game$p.value,
+      wt_lab$p.value
+    ),
+    5
+  ),
+  Significant_after_Bonferroni = c(
+    wt_single$p.value < alpha_corrected,
+    wt_multi$p.value < alpha_corrected,
+    wt_game$p.value < alpha_corrected,
+    wt_lab$p.value < alpha_corrected
+  )
+)
+
+print(simple_effects, row.names = FALSE)
+
+# ============================================================
+# SECTION 6: DESCRIPTIVE STATISTICS
+# ============================================================
+
+cat("\n=======================================================\n")
+cat("CELL DESCRIPTIVES (for reporting)\n")
+cat("=======================================================\n")
+
+cell_stats <- long_df %>%
+  group_by(TargetLoad, Modality) %>%
+  summarise(
+    n = n(),
+    Mean_RT = round(mean(RT_ms), 2),
+    Median_RT = round(median(RT_ms), 2),
+    SD_RT = round(sd(RT_ms), 2),
+    .groups = "drop"
+  )
+
+print(cell_stats)
+
+cat("\nGame-Lab Gaps (Mean):\n")
+
+gaps <- cell_stats %>%
+  tidyr::pivot_wider(
+    names_from = Modality,
+    values_from = c(Mean_RT, Median_RT)
+  ) %>%
+  mutate(
+    Gap_Mean = round(
+      Mean_RT_Game - Mean_RT_Lab,
+      2
+    ),
+    Gap_Median = round(
+      Median_RT_Game - Median_RT_Lab,
+      2
+    )
+  ) %>%
+  select(
+    TargetLoad,
+    Mean_RT_Game,
+    Mean_RT_Lab,
+    Gap_Mean,
+    Median_RT_Game,
+    Median_RT_Lab,
+    Gap_Median
+  )
+
+print(gaps)
+
+# ============================================================
+# SECTION 7: INTERACTION PLOT
+# ============================================================
+
+cat("\n=== Generating interaction plot ===\n")
+
+cell_means <- long_df %>%
+  group_by(TargetLoad, Modality) %>%
+  summarise(
+    Mean_RT = mean(RT_ms),
+    SE_RT = sd(RT_ms) / sqrt(n()),
+    .groups = "drop"
+  )
+
+interaction_plot <- ggplot(
+  cell_means,
+  aes(
+    x = Modality,
+    y = Mean_RT,
+    group = TargetLoad,
+    color = TargetLoad,
+    shape = TargetLoad
+  )
+) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 4) +
+  geom_errorbar(
+    aes(
+      ymin = Mean_RT - SE_RT,
+      ymax = Mean_RT + SE_RT
+    ),
+    width = 0.1,
+    linewidth = 0.8
+  ) +
+  scale_color_manual(
+    values = c(
+      "Single" = "steelblue",
+      "Multiple" = "darkgreen"
+    )
+  ) +
+  labs(
+    title = "Interaction Plot: Target Load × Modality",
+    subtitle = "Error bars = ±1 SE | Non-parallel lines = interaction",
+    x = "Modality",
+    y = "Mean Reaction Time (ms)",
+    color = "Target Load",
+    shape = "Target Load"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(
+      color = "black",
+      fill = NA
+    ),
+    plot.title = element_text(
+      face = "bold",
+      size = 14
+    ),
+    plot.subtitle = element_text(
+      size = 10,
+      color = "gray40"
+    ),
+    legend.position = "top"
+  )
+
+print(interaction_plot)
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
